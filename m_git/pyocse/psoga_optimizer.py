@@ -39,13 +39,30 @@ class PSOGAOptimizer:
         self.lower_bounds = np.array([b[0] for b in bounds])
         self.upper_bounds = np.array([b[1] for b in bounds])
 
-        # Initialize particles
+        # Initialize particles and Rescale to (0, 1)
         self.positions = np.random.uniform(self.lower_bounds, self.upper_bounds, (num_particles, dimensions))
-        self.velocities = np.random.uniform(self.lower_bounds, self.upper_bounds, (num_particles, dimensions))
+        self.positions = (self.positions - self.lower_bounds) / (self.upper_bounds - self.lower_bounds)
+        self.velocities = 0.1 * np.random.uniform(-1, 1, (num_particles, dimensions))
+
         self.personal_best_positions = np.copy(self.positions)
-        self.personal_best_scores = np.array([self.safe_evaluate(p) for p in self.positions])
+        # evaluate the score for each particle
+        self.personal_best_scores = np.zeros(len(self.positions))
+        for i, p in enumerate(self.positions):
+            p_actual = self.rescale(p)
+            score = self.safe_evaluate(p_actual)
+            self.personal_best_scores[i] = score
+            print(f"{i} score: {score} max_V: {np.abs(self.velocities[i]).max()}")
+            #print(self.positions[i])
+        #self.personal_best_scores = np.array([self.safe_evaluate(p) for p in self.positions])
+
         self.global_best_position = self.personal_best_positions[np.argmin(self.personal_best_scores)]
         self.global_best_score = np.min(self.personal_best_scores)
+
+    def rescale(self, scaled_values):
+        """
+        Rescale values from (0, 1) back to original bounds.
+        """
+        return scaled_values * (self.upper_bounds - self.lower_bounds) + self.lower_bounds
 
     def safe_evaluate(self, position):
         """Evaluate the objective function, handling exceptions gracefully."""
@@ -62,28 +79,51 @@ class PSOGAOptimizer:
     def pso_step(self):
         """Perform one step of PSO."""
         for i in range(self.num_particles):
+
+            #print("PSO_step", i, self.positions[i], self.velocities[i])
+            # update velocity
             r1, r2 = np.random.rand(), np.random.rand()
-            #self.positions[i] = np.clip(self.positions[i], self.lower_bounds, self.upper_bounds)
             self.positions[i] += self.velocities[i]
-            self.velocities[i] = (
-                self.inertia * self.velocities[i] +
+            #self.velocities[i] = (
+            v = (
+                self.inertia * self.velocities[i] + 
                 self.cognitive * r1 * (self.personal_best_positions[i] - self.positions[i]) +
-                self.social * r2 * (self.global_best_position - self.positions[i])
+                self.social * r2 * (self.global_best_position - self.positions[i]) + 
+                0.05 * np.random.uniform(-1, 1, (self.dimensions))
             )
+            v /= np.abs(v).max()
+            self.velocities[i] = 0.1 * v #(-0.1, 0.1)
+            
             #if self.debug:
             #print(f"Particle {i}: Velocity = {self.velocities[i]}")
             #print(f"Particle {i}: Position = {self.positions[i]}")
         
-        
-            score = self.safe_evaluate(self.positions[i])
+            # update position       
+            #self.positions[i] += self.velocities[i]
+            # position 100, vel: 10 (inertia: 11, congitive -1, social -1) 110 105
+            #self.positions[i] = np.clip(self.positions[i], self.lower_bounds, self.upper_bounds)
+            self.positions[i] = np.clip(self.positions[i], 0, 1)
+    
+            # update score
+            p_actual = self.rescale(self.positions[i])
+            score = self.safe_evaluate(p_actual)
+            #print('\nP scale', self.positions[i]); print("\nP_actual", p_actual); import sys; sys.exit()
+
+            strs = f"{i} score: {score}  pbest: {self.personal_best_scores[i]}"
             if score < self.personal_best_scores[i]:
                 self.personal_best_scores[i] = score
                 self.personal_best_positions[i] = self.positions[i]
+                strs += " ++++++++++++"
+            print(strs)
 
+        strs = f"Best Score: {self.global_best_score:.4f}"
         min_idx = np.argmin(self.personal_best_scores)
         if self.personal_best_scores[min_idx] < self.global_best_score:
             self.global_best_score = self.personal_best_scores[min_idx]
             self.global_best_position = self.personal_best_positions[min_idx]
+            strs += " ============================="
+
+        print(strs)
 
     def ga_step(self):
         """Perform one step of the Genetic Algorithm (GA)."""
@@ -119,13 +159,15 @@ class PSOGAOptimizer:
         self.personal_best_scores = np.array([self.safe_evaluate(p) for p in self.positions])
         
     
-    def optimize(self):
+    def optimize(self, x0=None):
         """Perform optimization using the PSO-GA hybrid algorithm."""
+        if x0 is not None:
+            self.positions = x0
+
         for iteration in range(self.max_iter):
-            self.ga_step()
+            #self.ga_step()
             self.pso_step()
             
-
             if self.verbose and iteration % 1 == 0:
                 print(f"Iteration {iteration + 1}/{self.max_iter}, Best Score: {self.global_best_score:.4f}")
                 #if self.debug:
