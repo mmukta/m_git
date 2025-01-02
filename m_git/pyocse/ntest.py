@@ -4,6 +4,49 @@ from time import time
 import os
 import numpy as np
 
+def obj_function(para_values, params, para0, terms, ref_dics, e_offset):
+    """
+    Objective function for PSOGAOptimizer.
+
+    Args:
+        para_values: Array of parameter values to evaluate.
+        params: parameter instance
+        para0: Array of all FF parameter as the base
+        terms: list of FF terms to optimize
+        ref_dics: dictionary of dataset
+        e_offset: offset value
+
+    Returns:
+        Objective score (lower is better).
+    """
+
+    # Split 1D array of para_values to a list grouped by each term
+    sub_values = []
+    count = 0
+    for term in terms:
+        N = getattr(params, 'N_'+term)
+        sub_values.append(para_values[count:count+N])
+        count += N
+
+    #print("debug subvals", sub_values[0][:5], para0[:5])
+    updated_params = params.set_sub_parameters(sub_values, terms, para0)
+
+    # Update the parameters in the force field with the base parameter
+    params.update_ff_parameters(updated_params)
+
+    # Reset the LAMMPS input if necessary
+    lmp_in = params.ff.get_lammps_in()
+
+    # Calculate the objective (e.g., MSE)
+    objective_score = params.get_objective(
+        ref_dics=ref_dics,
+        e_offset=e_offset,
+        lmp_in=lmp_in,
+        obj="MSE"
+    )
+    return objective_score
+
+
 np.random.seed(7)
 
 params = ForceFieldParameters(
@@ -25,120 +68,47 @@ os.chdir("ASP2")
 t0 = time()
 e_offset, params_opt = params.optimize_offset(ref_dics, p0)
 params.update_ff_parameters(params_opt)
-print(params.get_objective(ref_dics, e_offset, obj="MSE"))
-
-
-def generate_bounds(params, terms, params_opt):
-    """
-    Generate realistic bounds for the selected terms in the force field parameters.
-
-    Args:
-        params: ForceFieldParameters object.
-        terms: List of terms (e.g., ["bond", "angle"]).
-        params_opt: Current parameters.
-
-    Returns:
-        List of tuples representing bounds for each parameter.
-    """
-    opt_dict = params.get_opt_dict(terms, None, params_opt)
-    bounds = []
-
-    for term, values in opt_dict.items():
-        for v in values:
-            if term == "bond":  # Bond force constants and lengths
-                bounds.append((max(50, v * 0.75), min(500, v * 1.5)))  # k
-                bounds.append((v - 0.01, v + 0.01))  # r_eq
-            elif term == "angle":  # Angle force constants and equilibrium angles
-                bounds.append((max(50, v * 0.75), min(800, v * 1.25)))  # k_theta
-                bounds.append((v - 0.05, v + 0.05))  # theta_eq
-            elif term == "vdW":  # van der Waals parameters
-                bounds.append((v - 0.25, v + 0.25))  # rmin
-                bounds.append((max(0.05, v * 0.75), min(1.2, v * 1.25)))  # epsilon
-            elif term == "charge":  # Atomic charges
-                bounds.append((v - 0.1, v + 0.1))  # charge
-            else:
-                # General fallback: limit to +/-10% for other terms
-                bounds.append((v - abs(v * 0.1), v + abs(v * 0.1)))
-
-    return bounds
-
+print("MSE objective", params.get_objective(ref_dics, e_offset, obj="MSE"))
 
 # Stepwise optimization loop
-solutions = None
 for data in [
-    #(["bond", "angle", "proper"], 10),
-    #(["proper", "vdW", "charge"], 10),
-    (["bond", "angle", "proper", "vdW", "charge"], 100),
+    (["bond", "angle", "proper", "vdW"], 100),
 ]:
     (terms, steps) = data
 
-    bounds = generate_bounds(params, terms, params_opt)
-
-    def obj_function(parameter_values):
-        """
-        Objective function for PSOGAOptimizer.
-
-        Args:
-            parameter_values: Array of parameter values to evaluate.
-
-        Returns:
-            Objective score (lower is better).
-        """
-        # Update the parameters in the force field
-        updated_params = params.set_sub_parameters(parameter_values, terms, params_opt)
-        params.update_ff_parameters(updated_params)
-
-        # Reset the LAMMPS input if necessary
-        lmp_in = params.ff.get_lammps_in()
-
-        # Calculate the objective (e.g., MSE)
-        objective_score = params.get_objective(
-            ref_dics=ref_dics,
-            e_offset=e_offset,
-            lmp_in=lmp_in,
-            obj="MSE"
-        )
-
-        # Add regularization to prevent overfitting and improve generalization
-        #regularization = 0.01 * np.sum(np.square(parameter_values))  # L2 regularization
-        #objective_score += regularization
-
-        ## Introduce stochastic noise to avoid getting stuck in local minima
-        #stochastic_noise = np.random.uniform(-0.01, 0.01)  # Small random perturbation
-        #total_score += stochastic_noise
-
-        ## Penalize unphysical parameter values (optional, depends on system constraints)
-        #penalty = 0.0
-        #for value in parameter_values:
-        #    if value < 0 or value > 10:  # Example range for physical validity
-        #        penalty += 100  # High penalty for out-of-bound parameters
-        #objective_score += penalty
-
-        #print(f"Objective Score: {objective_score}, Regularization: {regularization}, Total Score: {total_score}")
-
-        return objective_score
+    sub_vals, sub_bounds, _ = params.get_sub_parameters(params_opt, terms)
+    vals = np.concatenate(sub_vals)
+    bounds = np.concatenate(sub_bounds)
 
     # PSO-GA optimization
     optimizer = PSOGAOptimizer(
         obj_function=obj_function,
+        obj_args=(params, params_opt, terms, ref_dics, e_offset),
         bounds=bounds,
-        num_particles=50,
+        seed=vals.reshape((1, len(vals))),
+        num_particles=100,
         dimensions=len(bounds),
-        inertia=0.4,
-        cognitive=0.1,
-        social=0.9,
+        inertia=0.5,
+        cognitive=0.2,
+        social=0.8,
         mutation_rate=0.3,
         crossover_rate=0.5,
         max_iter=steps,
         verbose=True
     )
 
-    best_position, best_score = optimizer.optimize(x0=solutions)
+    best_position, best_score = optimizer.optimize()
 
     # Update `params_opt` with the optimized values
-    params_opt = params.set_sub_parameters(best_position, terms, params_opt)
+    # Split 1D array of para_values to a list grouped by each term
+    sub_values = []
+    count = 0
+    for term in terms:
+        N = getattr(params, 'N_'+term)
+        sub_values.append(best_position[count:count+N])
+        count += N
+    params_opt = params.set_sub_parameters(sub_values, terms, params_opt)
     _, params_opt = params.optimize_offset(ref_dics, params_opt)
-    solutions = optimizer.positions
 
     t = (time() - t0) / 60
     print(f"\nStepwise optimization for terms {terms} completed in {t:.2f} minutes.")

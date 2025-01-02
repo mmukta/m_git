@@ -1,10 +1,11 @@
 import numpy as np
-import matplotlib.pyplot as plt
 
 class PSOGAOptimizer:
-    def __init__(self, obj_function, bounds, num_particles=30, dimensions=2,
-                 inertia=0.7, cognitive=1.5, social=1.5, mutation_rate=0.1, 
-                 crossover_rate=0.8, max_iter=100, verbose=True, debug=False):
+    def __init__(self, obj_function, obj_args, bounds, seed=None,
+                 num_particles=30, dimensions=2,
+                 inertia=0.7, cognitive=1.5, social=1.5, 
+                 mutation_rate=0.1, crossover_rate=0.8, 
+                 max_iter=100, verbose=True, debug=False):
         """
         Initialize the PSO-GA hybrid optimizer.
 
@@ -23,6 +24,7 @@ class PSOGAOptimizer:
         - debug: If True, prints detailed debug information.
         """
         self.obj_function = obj_function
+        self.obj_args = obj_args
         self.bounds = bounds
         self.num_particles = num_particles
         self.dimensions = dimensions
@@ -44,6 +46,9 @@ class PSOGAOptimizer:
         self.positions = (self.positions - self.lower_bounds) / (self.upper_bounds - self.lower_bounds)
         self.velocities = 0.1 * np.random.uniform(-1, 1, (num_particles, dimensions))
 
+        if seed is not None:
+            self.set_seeds(seed)
+
         self.personal_best_positions = np.copy(self.positions)
         # evaluate the score for each particle
         self.personal_best_scores = np.zeros(len(self.positions))
@@ -58,6 +63,14 @@ class PSOGAOptimizer:
         self.global_best_position = self.personal_best_positions[np.argmin(self.personal_best_scores)]
         self.global_best_score = np.min(self.personal_best_scores)
 
+    def set_seeds(self, seed):
+        """
+        reset the positions to the seed
+        """
+        n_seeds = len(seed)
+        print("Set Seeds", n_seeds)
+        self.positions[:n_seeds] = (seed - self.lower_bounds) / (self.upper_bounds - self.lower_bounds)
+
     def rescale(self, scaled_values):
         """
         Rescale values from (0, 1) back to original bounds.
@@ -66,15 +79,8 @@ class PSOGAOptimizer:
 
     def safe_evaluate(self, position):
         """Evaluate the objective function, handling exceptions gracefully."""
-        try:
-            score = self.obj_function(position)
-            if np.isnan(score) or np.isinf(score):
-                return np.inf  # Penalize invalid scores
-            return score
-        except Exception as e:
-            if self.debug:
-                print(f"Error evaluating position {position}: {e}")
-            return np.inf
+        score = self.obj_function(position, *self.obj_args)
+        return score
 
     def pso_step(self):
         """Perform one step of PSO."""
@@ -116,8 +122,8 @@ class PSOGAOptimizer:
                 strs += " ++++++++++++"
             print(strs)
 
-        strs = f"Best Score: {self.global_best_score:.4f}"
         min_idx = np.argmin(self.personal_best_scores)
+        strs = f"Best Score: {min_idx} {self.global_best_score:.4f}"
         if self.personal_best_scores[min_idx] < self.global_best_score:
             self.global_best_score = self.personal_best_scores[min_idx]
             self.global_best_position = self.personal_best_positions[min_idx]
