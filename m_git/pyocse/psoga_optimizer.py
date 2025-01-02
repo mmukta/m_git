@@ -42,25 +42,27 @@ class PSOGAOptimizer:
         self.upper_bounds = np.array([b[1] for b in bounds])
 
         # Initialize particles and Rescale to (0, 1)
-        self.positions = np.random.uniform(self.lower_bounds, self.upper_bounds, (num_particles, dimensions))
+        self.positions = np.random.uniform(self.lower_bounds, 
+                                           self.upper_bounds, 
+                                           (num_particles, dimensions))
         self.positions = (self.positions - self.lower_bounds) / (self.upper_bounds - self.lower_bounds)
         self.velocities = 0.1 * np.random.uniform(-1, 1, (num_particles, dimensions))
 
         if seed is not None:
             self.set_seeds(seed)
 
+
+        # Init: evaluate the score for each particle
         self.personal_best_positions = np.copy(self.positions)
-        # evaluate the score for each particle
         self.personal_best_scores = np.zeros(len(self.positions))
         for i, p in enumerate(self.positions):
             p_actual = self.rescale(p)
             score = self.safe_evaluate(p_actual)
             self.personal_best_scores[i] = score
             print(f"{i} score: {score} max_V: {np.abs(self.velocities[i]).max()}")
-            #print(self.positions[i])
-        #self.personal_best_scores = np.array([self.safe_evaluate(p) for p in self.positions])
 
-        self.global_best_position = self.personal_best_positions[np.argmin(self.personal_best_scores)]
+        min_idx = np.argmin(self.personal_best_scores)
+        self.global_best_position = self.personal_best_positions[min_idx]
         self.global_best_score = np.min(self.personal_best_scores)
 
     def set_seeds(self, seed):
@@ -180,4 +182,5 @@ class PSOGAOptimizer:
                 #print(f"Global Best Position: {self.global_best_position}")
                 #print(f"Velocities:\n{self.velocities}")
                 #print(f"Positions:\n{self.positions}")
-        return self.global_best_position, self.global_best_score
+        best_position = self.rescale(self.global_best_position)
+        return best_position, self.global_best_score
