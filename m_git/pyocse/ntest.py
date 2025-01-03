@@ -6,14 +6,24 @@ import numpy as np
 import multiprocessing as mp
 import copy
 
+# Global shared arguments for all workers
+def worker_init(shared_params, shared_para0, shared_terms, shared_ref_dics, shared_e_offset, shared_obj):
+    global params, para0, terms, ref_dics, e_offset, obj
+    params = shared_params
+    para0 = shared_para0
+    terms = shared_terms
+    ref_dics = shared_ref_dics
+    e_offset = shared_e_offset
+    obj = shared_obj
+
 def worker(args):
-    para_values, params, para0, terms, ref_dics, e_offset, obj, path = args
+    para_values, path = args
     # Get the current worker's process ID and name
     process = mp.current_process()  # Get process info
     worker_id = process.name        # Name of the worker process
 
     # Print worker ID along with the path
-    print(f'Worker {worker_id} is evaluating path: {path}')
+    #print(f'Worker {worker_id} is evaluating path: {path}')
     return obj_function(para_values, params, para0, terms, ref_dics, e_offset, obj, path)
 
 def obj_function_par(para_values_list, params, para0, terms, ref_dics, e_offset, ncpu, obj="R2"):
@@ -35,22 +45,40 @@ def obj_function_par(para_values_list, params, para0, terms, ref_dics, e_offset,
     """
     if ncpu == 1:
         scores = []
-        for para_value in para_values_list:
+        for i, para_value in enumerate(para_values_list):
+            print(f'evaluating: {i}')
             score = obj_function(para_value, params, para0, terms, ref_dics, e_offset, obj, '.')
             scores.append(score)
         return scores
 
-    # Use multiprocessing to parallelize computations
-    input_data = []
-    for i in range(len(para_values_list)):
-        # timing copy
-        local_params = copy.deepcopy(params)  # Or params.clone() if implemented
-        para = para_values_list[i]
-        input_data.append((para, local_params, para0, terms, ref_dics, e_offset, obj, f'tmp_{i}'))
+    # Prepare input data
+    input_data = [(para, f'tmp_{i}') for i, para in enumerate(para_values_list)]
 
-    print("Parallel Mode", ncpu)
-    with mp.Pool(processes=ncpu) as pool:
+    print(f"Parallel Mode {ncpu}")
+    t0 = time()
+
+    # Use multiprocessing with shared arguments
+    with mp.Pool(
+        processes=ncpu,
+        initializer=worker_init,
+        initargs=(params, para0, terms, ref_dics, e_offset, obj)
+    ) as pool:
         results = pool.map(worker, input_data)
+
+    print(f"Time for parallel computation: {time()-t0}")
+
+    ## Use multiprocessing to parallelize computations
+    #input_data = []
+    ## timing copy
+    #t0 = time()
+    #for i in range(len(para_values_list)):
+    #    local_params = copy.deepcopy(params)  # Or params.clone() if implemented
+    #    para = para_values_list[i]
+    #    input_data.append((para, local_params, para0, terms, ref_dics, e_offset, obj, f'tmp_{i}'))
+
+    #print(f"Parallel Mode {ncpu}, time for copying variables: {time()-t0}")
+    #with mp.Pool(processes=ncpu) as pool:
+    #    results = pool.map(worker, input_data)
 
     return results
 
@@ -127,7 +155,7 @@ if __name__ == "__main__":
     
     # Stepwise optimization loop
     for data in [
-        (["bond", "angle", "proper", "vdW"], 5),
+        (["bond", "angle", "proper", "vdW"], 15),
     ]:
         (terms, steps) = data
     

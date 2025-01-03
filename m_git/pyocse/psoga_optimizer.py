@@ -121,7 +121,7 @@ class PSOGAOptimizer:
                 self.personal_best_scores[i] = score
                 self.personal_best_positions[i] = self.positions[i]
                 strs += " ++++++++++++"
-            print(strs)
+                print(strs)
 
         min_idx = np.argmin(self.personal_best_scores)
         strs = f"Best Score: {min_idx} {self.global_best_score:.4f}"
