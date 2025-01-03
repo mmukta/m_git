@@ -35,6 +35,7 @@ class PSOGAOptimizer:
         self.crossover_rate = crossover_rate
         self.max_iter = max_iter
         self.verbose = verbose
+        self.ncpu = 1
         self.debug = True
 
         # Initialize bounds
@@ -84,39 +85,38 @@ class PSOGAOptimizer:
         score = self.obj_function(position, *self.obj_args)
         return score
 
+    def safe_evaluate_par(self, positions):
+        if self.ncpu == 1:
+            scores = [self.safe_evaluate(p) for p in positions]
+        else:
+            scores = self.obj_function(positions, *self.obj_args)
+        return scores
+
     def pso_step(self):
         """Perform one step of PSO."""
+        p_actuals = []
         for i in range(self.num_particles):
-
-            #print("PSO_step", i, self.positions[i], self.velocities[i])
             # update velocity
             r1, r2 = np.random.rand(), np.random.rand()
             self.positions[i] += self.velocities[i]
-            #self.velocities[i] = (
             v = (
-                self.inertia * self.velocities[i] + 
-                self.cognitive * r1 * (self.personal_best_positions[i] - self.positions[i]) +
-                self.social * r2 * (self.global_best_position - self.positions[i]) + 
-                0.05 * np.random.uniform(-1, 1, (self.dimensions))
+                 self.inertia * self.velocities[i] + 
+                 self.cognitive * r1 * (self.personal_best_positions[i] - self.positions[i]) +
+                 self.social * r2 * (self.global_best_position - self.positions[i]) + 
+                 0.05 * np.random.uniform(-1, 1, (self.dimensions))
             )
             v /= np.abs(v).max()
             self.velocities[i] = 0.1 * v #(-0.1, 0.1)
-            
-            #if self.debug:
-            #print(f"Particle {i}: Velocity = {self.velocities[i]}")
-            #print(f"Particle {i}: Position = {self.positions[i]}")
-        
-            # update position       
-            #self.positions[i] += self.velocities[i]
-            # position 100, vel: 10 (inertia: 11, congitive -1, social -1) 110 105
-            #self.positions[i] = np.clip(self.positions[i], self.lower_bounds, self.upper_bounds)
             self.positions[i] = np.clip(self.positions[i], 0, 1)
     
             # update score
             p_actual = self.rescale(self.positions[i])
-            score = self.safe_evaluate(p_actual)
-            #print('\nP scale', self.positions[i]); print("\nP_actual", p_actual); import sys; sys.exit()
+            p_actuals.append(p_actual)
 
+        # Evaluate results in parallel 
+        scores = self.safe_evaluate_par(p_actuals)
+        for i in range(self.num_particles):
+            score = scores[i]
             strs = f"{i} score: {score}  pbest: {self.personal_best_scores[i]}"
             if score < self.personal_best_scores[i]:
                 self.personal_best_scores[i] = score
