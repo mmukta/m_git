@@ -5,7 +5,7 @@ class PSOGAOptimizer:
                  num_particles=30, dimensions=2,
                  inertia=0.7, cognitive=1.5, social=1.5, 
                  mutation_rate=0.1, crossover_rate=0.8, 
-                 max_iter=100, verbose=True, debug=False):
+                 max_iter=100, ncpu=1, verbose=True, debug=False):
         """
         Initialize the PSO-GA hybrid optimizer.
 
@@ -20,6 +20,7 @@ class PSOGAOptimizer:
         - mutation_rate: Probability of mutation (GA).
         - crossover_rate: Probability of crossover (GA).
         - max_iter: Maximum number of iterations.
+        - ncpu: number of parallel processes
         - verbose: If True, prints progress during optimization.
         - debug: If True, prints detailed debug information.
         """
@@ -35,8 +36,9 @@ class PSOGAOptimizer:
         self.crossover_rate = crossover_rate
         self.max_iter = max_iter
         self.verbose = verbose
-        self.ncpu = 1
+        self.ncpu = ncpu
         self.debug = True
+        self.obj_args = self.obj_args + (self.ncpu, )
 
         # Initialize bounds
         self.lower_bounds = np.array([b[0] for b in bounds])
@@ -52,15 +54,14 @@ class PSOGAOptimizer:
         if seed is not None:
             self.set_seeds(seed)
 
-
         # Init: evaluate the score for each particle
         self.personal_best_positions = np.copy(self.positions)
         self.personal_best_scores = np.zeros(len(self.positions))
-        for i, p in enumerate(self.positions):
-            p_actual = self.rescale(p)
-            score = self.safe_evaluate(p_actual)
-            self.personal_best_scores[i] = score
-            print(f"{i} score: {score} max_V: {np.abs(self.velocities[i]).max()}")
+        scores = self.safe_evaluate_par()
+        for i in range(self.num_particles):
+            #score = self.safe_evaluate(p_actual)
+            self.personal_best_scores[i] = scores[i]
+            print(f"{i} score: {scores[i]}")
 
         min_idx = np.argmin(self.personal_best_scores)
         self.global_best_position = self.personal_best_positions[min_idx]
@@ -80,21 +81,22 @@ class PSOGAOptimizer:
         """
         return scaled_values * (self.upper_bounds - self.lower_bounds) + self.lower_bounds
 
-    def safe_evaluate(self, position):
+    def safe_evaluate_obsolete(self, position):
         """Evaluate the objective function, handling exceptions gracefully."""
         score = self.obj_function(position, *self.obj_args)
         return score
 
-    def safe_evaluate_par(self, positions):
-        if self.ncpu == 1:
-            scores = [self.safe_evaluate(p) for p in positions]
-        else:
-            scores = self.obj_function(positions, *self.obj_args)
+    def safe_evaluate_par(self):
+        p_actuals = []
+        for i, p in enumerate(self.positions):
+            p_actual = self.rescale(p)
+            p_actuals.append(p_actual)
+
+        scores = self.obj_function(p_actuals, *self.obj_args)
         return scores
 
     def pso_step(self):
         """Perform one step of PSO."""
-        p_actuals = []
         for i in range(self.num_particles):
             # update velocity
             r1, r2 = np.random.rand(), np.random.rand()
@@ -108,13 +110,10 @@ class PSOGAOptimizer:
             v /= np.abs(v).max()
             self.velocities[i] = 0.1 * v #(-0.1, 0.1)
             self.positions[i] = np.clip(self.positions[i], 0, 1)
-    
-            # update score
-            p_actual = self.rescale(self.positions[i])
-            p_actuals.append(p_actual)
-
+        
         # Evaluate results in parallel 
-        scores = self.safe_evaluate_par(p_actuals)
+        scores = self.safe_evaluate_par()
+
         for i in range(self.num_particles):
             score = scores[i]
             strs = f"{i} score: {score}  pbest: {self.personal_best_scores[i]}"
