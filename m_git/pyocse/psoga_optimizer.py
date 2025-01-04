@@ -1,11 +1,12 @@
 import numpy as np
+import logging
 
 class PSOGAOptimizer:
     def __init__(self, obj_function, obj_args, bounds, seed=None,
                  num_particles=30, dimensions=2,
                  inertia=0.7, cognitive=1.5, social=1.5, 
                  mutation_rate=0.1, crossover_rate=0.8, 
-                 max_iter=100, ncpu=1):
+                 max_iter=100, ncpu=1, log_file="pso.log"):
         """
         Initialize the PSO-GA hybrid optimizer.
 
@@ -21,6 +22,7 @@ class PSOGAOptimizer:
         - crossover_rate: Probability of crossover (GA).
         - max_iter: Maximum number of iterations.
         - ncpu: number of parallel processes
+        - log_file: log file name
         """
         self.obj_function = obj_function
         self.obj_args = obj_args
@@ -36,6 +38,15 @@ class PSOGAOptimizer:
         self.ncpu = ncpu
         self.debug = True
         self.obj_args = self.obj_args + (self.ncpu, )
+        self.log_file = log_file
+
+        # Initialize logger
+        logging.getLogger().handlers.clear()
+        logging.basicConfig(format="%(asctime)s| %(message)s", 
+                            filename=self.log_file, 
+                            level=logging.INFO)
+        self.logger = logging
+        
 
         # Initialize bounds
         self.lower_bounds = np.array([b[0] for b in bounds])
@@ -56,9 +67,8 @@ class PSOGAOptimizer:
         self.personal_best_scores = np.zeros(len(self.positions))
         scores = self.safe_evaluate_par()
         for i in range(self.num_particles):
-            #score = self.safe_evaluate(p_actual)
             self.personal_best_scores[i] = scores[i]
-            print(f"{i} score: {scores[i]}")
+            self.logger.info(f"{i} score: {scores[i]}")
 
         min_idx = np.argmin(self.personal_best_scores)
         self.global_best_position = self.personal_best_positions[min_idx]
@@ -70,7 +80,7 @@ class PSOGAOptimizer:
         reset the positions to the seed
         """
         n_seeds = len(seed)
-        print("Set Seeds", n_seeds)
+        self.logger.debug(f"Set Seeds {n_seeds}")
         self.positions[:n_seeds] = (seed - self.lower_bounds) / (self.upper_bounds - self.lower_bounds)
 
     def rescale(self, scaled_values):
@@ -109,12 +119,11 @@ class PSOGAOptimizer:
 
         for i in range(self.num_particles):
             score = scores[i]
-            strs = f"{i} score: {score}  pbest: {self.personal_best_scores[i]}"
             if score < self.personal_best_scores[i]:
+                strs = f"{i} score: {score}  pbest: {self.personal_best_scores[i]}"
                 self.personal_best_scores[i] = score
                 self.personal_best_positions[i] = self.positions[i]
-                strs += " ++++++++++++"
-                print(strs)
+                self.logger.info(strs)
 
         min_idx = np.argmin(self.personal_best_scores)
         if self.personal_best_scores[min_idx] < self.global_best_score:
@@ -134,6 +143,6 @@ class PSOGAOptimizer:
                 strs = f"Iteration {iteration + 1}/{self.max_iter}, "
                 strs += f"ID: {self.global_best_id}, "
                 strs += f"Best Score: {self.global_best_score:.4f}"
-                print(strs)
+                self.logger.info(strs)
         best_position = self.rescale(self.global_best_position)
         return best_position, self.global_best_score
