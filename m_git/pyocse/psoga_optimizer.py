@@ -66,6 +66,7 @@ class PSOGAOptimizer:
         min_idx = np.argmin(self.personal_best_scores)
         self.global_best_position = self.personal_best_positions[min_idx]
         self.global_best_score = np.min(self.personal_best_scores)
+        self.global_best_id = min_idx
 
     def set_seeds(self, seed):
         """
@@ -124,13 +125,10 @@ class PSOGAOptimizer:
                 print(strs)
 
         min_idx = np.argmin(self.personal_best_scores)
-        strs = f"Best Score: {min_idx} {self.global_best_score:.4f}"
         if self.personal_best_scores[min_idx] < self.global_best_score:
             self.global_best_score = self.personal_best_scores[min_idx]
             self.global_best_position = self.personal_best_positions[min_idx]
-            strs += " ============================="
-
-        print(strs)
+            self.global_best_id = min_idx
 
     def ga_step(self):
         """Perform one step of the Genetic Algorithm (GA)."""
@@ -165,7 +163,6 @@ class PSOGAOptimizer:
         self.personal_best_positions = np.copy(self.positions)
         self.personal_best_scores = np.array([self.safe_evaluate(p) for p in self.positions])
         
-    
     def optimize(self, x0=None):
         """Perform optimization using the PSO-GA hybrid algorithm."""
         if x0 is not None:
@@ -176,7 +173,10 @@ class PSOGAOptimizer:
             self.pso_step()
             
             if self.verbose and iteration % 1 == 0:
-                print(f"Iteration {iteration + 1}/{self.max_iter}, Best Score: {self.global_best_score:.4f}")
+                strs = f"Iteration {iteration + 1}/{self.max_iter}, "
+                strs += f"ID: {self.global_best_id}, "
+                strs += f"Best Score: {self.global_best_score:.4f}"
+                print(strs)
                 #if self.debug:
                 #print(f"Global Best Position: {self.global_best_position}")
                 #print(f"Velocities:\n{self.velocities}")

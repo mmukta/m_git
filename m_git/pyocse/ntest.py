@@ -4,7 +4,6 @@ from time import time
 import os
 import numpy as np
 import multiprocessing as mp
-import copy
 
 # Global shared arguments for all workers
 def worker_init(shared_params, shared_para0, shared_terms, shared_ref_dics, shared_e_offset, shared_obj):
@@ -16,15 +15,13 @@ def worker_init(shared_params, shared_para0, shared_terms, shared_ref_dics, shar
     e_offset = shared_e_offset
     obj = shared_obj
 
-def worker(args):
-    para_values, path = args
-    # Get the current worker's process ID and name
-    process = mp.current_process()  # Get process info
-    worker_id = process.name        # Name of the worker process
-
-    # Print worker ID along with the path
-    #print(f'Worker {worker_id} is evaluating path: {path}')
-    return obj_function(para_values, params, para0, terms, ref_dics, e_offset, obj, path)
+def worker(para_values):
+    t0 = time()
+    worker_id = mp.current_process().name
+    path = "tmp_" + worker_id
+    score = obj_function(para_values, params, para0, terms, ref_dics, e_offset, obj, path)
+    print(f"Worker {mp.current_process().pid} finished in {time()-t0:.2f} s")
+    return score
 
 def obj_function_par(para_values_list, params, para0, terms, ref_dics, e_offset, ncpu, obj="R2"):
     """
@@ -51,34 +48,20 @@ def obj_function_par(para_values_list, params, para0, terms, ref_dics, e_offset,
             scores.append(score)
         return scores
 
-    # Prepare input data
-    input_data = [(para, f'tmp_{i}') for i, para in enumerate(para_values_list)]
-
-    print(f"Parallel Mode {ncpu}")
     t0 = time()
 
-    # Use multiprocessing with shared arguments
-    with mp.Pool(
-        processes=ncpu,
-        initializer=worker_init,
-        initargs=(params, para0, terms, ref_dics, e_offset, obj)
-    ) as pool:
-        results = pool.map(worker, input_data)
+    # Initialize the pool once and reuse it for all iterations
+    if not hasattr(obj_function_par, 'pool'):
+    
+        obj_function_par.pool = mp.Pool(
+            processes=ncpu,
+            initializer=worker_init,
+            initargs=(params, para0, terms, ref_dics, e_offset, obj)
+        )
+        print(f"Pool initialized, {time()-t0}")
 
+    results = obj_function_par.pool.map(worker, para_values_list)
     print(f"Time for parallel computation: {time()-t0}")
-
-    ## Use multiprocessing to parallelize computations
-    #input_data = []
-    ## timing copy
-    #t0 = time()
-    #for i in range(len(para_values_list)):
-    #    local_params = copy.deepcopy(params)  # Or params.clone() if implemented
-    #    para = para_values_list[i]
-    #    input_data.append((para, local_params, para0, terms, ref_dics, e_offset, obj, f'tmp_{i}'))
-
-    #print(f"Parallel Mode {ncpu}, time for copying variables: {time()-t0}")
-    #with mp.Pool(processes=ncpu) as pool:
-    #    results = pool.map(worker, input_data)
 
     return results
 
@@ -95,7 +78,7 @@ def obj_function(para_values, params, para0, terms, ref_dics, e_offset, obj, pat
         e_offset: offset value
 
     Returns:
-        Objective score (lower is better).
+        Objective score.
     """
 
     # Split 1D array of para_values to a list grouped by each term
@@ -127,7 +110,7 @@ def obj_function(para_values, params, para0, terms, ref_dics, e_offset, obj, pat
     return objective_score
 
 if __name__ == "__main__":
-    np.random.seed(7)
+    np.random.seed(1234) #7
     
     params = ForceFieldParameters(
         smiles=['CC(=O)OC1=CC=CC=C1C(=O)O'],
@@ -151,11 +134,10 @@ if __name__ == "__main__":
     errs = params.plot_ff_results("performance_opt_pso_0.png", ref_dics, [params_opt])
     print("MSE objective", params.get_objective(ref_dics, e_offset, obj="MSE"))
     print("R2 objective", params.get_objective(ref_dics, e_offset, obj="R2"))
-    #import sys; sys.exit()
     
     # Stepwise optimization loop
     for data in [
-        (["bond", "angle", "proper", "vdW"], 15),
+        (["bond", "angle", "proper", "vdW"], 30),
     ]:
         (terms, steps) = data
     
@@ -177,14 +159,14 @@ if __name__ == "__main__":
             mutation_rate=0.3,
             crossover_rate=0.5,
             max_iter=steps,
-            verbose=True,
-            ncpu=4,
+            ncpu=5,
         )
     
         best_position, best_score = optimizer.optimize()
     
         # Update `params_opt` with the optimized values
         # Split 1D array of para_values to a list grouped by each term
+        # Todo: move this to a function method in ForceFieldParameters
         sub_values = []
         count = 0
         for term in terms:
