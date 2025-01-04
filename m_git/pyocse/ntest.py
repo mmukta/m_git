@@ -4,6 +4,10 @@ from time import time
 import os
 import numpy as np
 import multiprocessing as mp
+from multiprocessing import set_start_method
+
+# Set the start method to 'spawn'
+set_start_method('spawn', force=True)
 
 # Global shared arguments for all workers
 def worker_init(shared_params, shared_para0, shared_terms, shared_ref_dics, shared_e_offset, shared_obj):
@@ -16,11 +20,10 @@ def worker_init(shared_params, shared_para0, shared_terms, shared_ref_dics, shar
     obj = shared_obj
 
 def worker(para_values):
-    t0 = time()
-    worker_id = mp.current_process().name
-    path = "tmp_" + worker_id
+    #t0 = time()
+    path = mp.current_process().name
     score = obj_function(para_values, params, para0, terms, ref_dics, e_offset, obj, path)
-    print(f"Worker {mp.current_process().pid} finished in {time()-t0:.2f} s")
+    #print(f"Worker {mp.current_process().pid} finished in {time()-t0:.2f} s")
     return score
 
 def obj_function_par(para_values_list, params, para0, terms, ref_dics, e_offset, ncpu, obj="R2"):
@@ -40,15 +43,15 @@ def obj_function_par(para_values_list, params, para0, terms, ref_dics, e_offset,
     Returns:
         List of objective scores.
     """
+    t0 = time()
+
     if ncpu == 1:
         scores = []
         for i, para_value in enumerate(para_values_list):
-            print(f'evaluating: {i}')
             score = obj_function(para_value, params, para0, terms, ref_dics, e_offset, obj, '.')
             scores.append(score)
+        print(f"Time for serial computation: {time()-t0:.4f}")
         return scores
-
-    t0 = time()
 
     # Initialize the pool once and reuse it for all iterations
     if not hasattr(obj_function_par, 'pool'):
@@ -61,7 +64,7 @@ def obj_function_par(para_values_list, params, para0, terms, ref_dics, e_offset,
         print(f"Pool initialized, {time()-t0}")
 
     results = obj_function_par.pool.map(worker, para_values_list)
-    print(f"Time for parallel computation: {time()-t0}")
+    print(f"Time for parallel computation: {time()-t0:.4f}")
 
     return results
 

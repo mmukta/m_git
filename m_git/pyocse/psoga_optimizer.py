@@ -5,7 +5,7 @@ class PSOGAOptimizer:
                  num_particles=30, dimensions=2,
                  inertia=0.7, cognitive=1.5, social=1.5, 
                  mutation_rate=0.1, crossover_rate=0.8, 
-                 max_iter=100, ncpu=1, verbose=True, debug=False):
+                 max_iter=100, ncpu=1):
         """
         Initialize the PSO-GA hybrid optimizer.
 
@@ -21,8 +21,6 @@ class PSOGAOptimizer:
         - crossover_rate: Probability of crossover (GA).
         - max_iter: Maximum number of iterations.
         - ncpu: number of parallel processes
-        - verbose: If True, prints progress during optimization.
-        - debug: If True, prints detailed debug information.
         """
         self.obj_function = obj_function
         self.obj_args = obj_args
@@ -35,7 +33,6 @@ class PSOGAOptimizer:
         self.mutation_rate = mutation_rate
         self.crossover_rate = crossover_rate
         self.max_iter = max_iter
-        self.verbose = verbose
         self.ncpu = ncpu
         self.debug = True
         self.obj_args = self.obj_args + (self.ncpu, )
@@ -82,14 +79,9 @@ class PSOGAOptimizer:
         """
         return scaled_values * (self.upper_bounds - self.lower_bounds) + self.lower_bounds
 
-    def safe_evaluate_obsolete(self, position):
-        """Evaluate the objective function, handling exceptions gracefully."""
-        score = self.obj_function(position, *self.obj_args)
-        return score
-
     def safe_evaluate_par(self):
         p_actuals = []
-        for i, p in enumerate(self.positions):
+        for p in self.positions:
             p_actual = self.rescale(p)
             p_actuals.append(p_actual)
 
@@ -130,56 +122,18 @@ class PSOGAOptimizer:
             self.global_best_position = self.personal_best_positions[min_idx]
             self.global_best_id = min_idx
 
-    def ga_step(self):
-        """Perform one step of the Genetic Algorithm (GA)."""
-        new_population = []
-        fitness = 1 / (1 + self.personal_best_scores)
-        probabilities = fitness / np.sum(fitness)
-
-        for _ in range(self.num_particles // 2):
-            parents_idx = np.random.choice(range(self.num_particles), size=2, p=probabilities)
-            parent1 = self.personal_best_positions[parents_idx[0]]
-            parent2 = self.personal_best_positions[parents_idx[1]]
-
-            # Crossover
-            if np.random.rand() < self.crossover_rate:
-                crossover_point = np.random.randint(1, self.dimensions)
-                child1 = np.concatenate([parent1[:crossover_point], parent2[crossover_point:]])
-                child2 = np.concatenate([parent2[:crossover_point], parent1[crossover_point:]])
-            else:
-                child1, child2 = parent1, parent2
-
-            # Mutation
-            for child in [child1, child2]:
-                if np.random.rand() < self.mutation_rate:
-                    mutation_idx = np.random.randint(0, self.dimensions)
-                    child[mutation_idx] += np.random.normal(0, 0.1)
-                    child = np.clip(child, self.lower_bounds, self.upper_bounds)
-                #if self.debug:
-                #print(f"Child Position after mutation: {child}")
-                new_population.append(child)
-
-        self.positions = np.array(new_population)
-        self.personal_best_positions = np.copy(self.positions)
-        self.personal_best_scores = np.array([self.safe_evaluate(p) for p in self.positions])
-        
     def optimize(self, x0=None):
         """Perform optimization using the PSO-GA hybrid algorithm."""
         if x0 is not None:
             self.positions = x0
 
         for iteration in range(self.max_iter):
-            #self.ga_step()
             self.pso_step()
             
-            if self.verbose and iteration % 1 == 0:
+            if iteration % 1 == 0:
                 strs = f"Iteration {iteration + 1}/{self.max_iter}, "
                 strs += f"ID: {self.global_best_id}, "
                 strs += f"Best Score: {self.global_best_score:.4f}"
                 print(strs)
-                #if self.debug:
-                #print(f"Global Best Position: {self.global_best_position}")
-                #print(f"Velocities:\n{self.velocities}")
-                #print(f"Positions:\n{self.positions}")
         best_position = self.rescale(self.global_best_position)
         return best_position, self.global_best_score
