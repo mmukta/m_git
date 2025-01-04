@@ -113,23 +113,41 @@ def obj_function(para_values, params, para0, terms, ref_dics, e_offset, obj, pat
     return objective_score
 
 if __name__ == "__main__":
-    np.random.seed(1234) #7
-    
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ncpu", type=int, default=5, 
+                        help="Number of CPUs to use, default is 5.")
+    parser.add_argument("--steps", type=int, default=30, 
+                        help="Number of opt steps, default is 30.")
+    parser.add_argument("--ref", default="dataset/references.xml", 
+                        help="Reference dataset file, default is dataset/references.xml.")
+    parser.add_argument("--params", default="dataset/parameters.xml", 
+                        help="Initial parameters file, default is dataset/parameters.xml.")
+    parser.add_argument("--style", default="openff", 
+                        help="Force field style, default is openff.")
+    parser.add_argument("--export", default="parameters_opt_pso.xml", 
+                        help="Export optimized parameters, default is parameters_opt_pso.xml.")
+    parser.add_argument("--dir", default="test", 
+                        help="Output directory, default is test.")
+
+    args = parser.parse_args()
+
+    np.random.seed(1234)
     params = ForceFieldParameters(
         smiles=['CC(=O)OC1=CC=CC=C1C(=O)O'],
         f_coef=1, #0.1,
         s_coef=1, #0,
         e_coef=1,
-        style='openff',
+        style=args.style,
         ref_evaluator='mace',
         ncpu=1,
     )
     
-    p0, errors = params.load_parameters("dataset/parameters.xml")
-    ref_dics = params.load_references("dataset/references.xml")[:200]
+    p0, errors = params.load_parameters(args.params)
+    ref_dics = params.load_references(args.ref)
     
-    os.makedirs("ASP2", exist_ok=True)
-    os.chdir("ASP2")
+    os.makedirs(args.dir, exist_ok=True)
+    os.chdir(args.dir)
     
     t0 = time()
     e_offset, params_opt = params.optimize_offset(ref_dics, p0)
@@ -139,52 +157,49 @@ if __name__ == "__main__":
     print("R2 objective", params.get_objective(ref_dics, e_offset, obj="R2"))
     
     # Stepwise optimization loop
-    for data in [
-        (["bond", "angle", "proper", "vdW"], 30),
-    ]:
-        (terms, steps) = data
+    terms = ["bond", "angle", "proper", "vdW"]
     
-        sub_vals, sub_bounds, _ = params.get_sub_parameters(params_opt, terms)
-        vals = np.concatenate(sub_vals)
-        bounds = np.concatenate(sub_bounds)
+    sub_vals, sub_bounds, _ = params.get_sub_parameters(params_opt, terms)
+    vals = np.concatenate(sub_vals)
+    bounds = np.concatenate(sub_bounds)
     
-        # PSO-GA optimization
-        optimizer = PSOGAOptimizer(
+    # PSO-GA optimization
+    optimizer = PSOGAOptimizer(
             obj_function=obj_function_par,
             obj_args=(params, params_opt, terms, ref_dics, e_offset),
             bounds=bounds,
             seed=vals.reshape((1, len(vals))),
-            num_particles=100, #0,
+            num_particles=100, 
             dimensions=len(bounds),
             inertia=0.5,
             cognitive=0.2,
             social=0.8,
             mutation_rate=0.3,
             crossover_rate=0.5,
-            max_iter=steps,
-            ncpu=5,
-        )
+            max_iter=args.steps,
+            ncpu=args.ncpu,
+    )
     
-        best_position, best_score = optimizer.optimize()
+    best_position, best_score = optimizer.optimize()
     
-        # Update `params_opt` with the optimized values
-        # Split 1D array of para_values to a list grouped by each term
-        # Todo: move this to a function method in ForceFieldParameters
-        sub_values = []
-        count = 0
-        for term in terms:
-            N = getattr(params, 'N_'+term)
-            sub_values.append(best_position[count: count+N])
-            count += N
+    # Update `params_opt` with the optimized values
+    # Split 1D array of para_values to a list grouped by each term
+    # Todo: move this to a function method in ForceFieldParameters
+    sub_values = []
+    count = 0
+    for term in terms:
+        N = getattr(params, 'N_'+term)
+        sub_values.append(best_position[count: count+N])
+        count += N
     
-        params_opt = params.set_sub_parameters(sub_values, terms, params_opt)
-        e_offset, params_opt = params.optimize_offset(ref_dics, params_opt)
-        params.update_ff_parameters(params_opt)
-        print("e_offset", e_offset)
+    params_opt = params.set_sub_parameters(sub_values, terms, params_opt)
+    e_offset, params_opt = params.optimize_offset(ref_dics, params_opt)
+    params.update_ff_parameters(params_opt)
+    print("e_offset", e_offset)
     
-        t = (time() - t0) / 60
-        print(f"\nStepwise optimization for terms {terms} completed in {t:.2f} minutes.")
-        print(f"Best Score: {best_score:.4f}")
+    t = (time() - t0) / 60
+    print(f"\nStepwise optimization for terms {terms} completed in {t:.2f} minutes.")
+    print(f"Best Score: {best_score:.4f}")
     
     # Final evaluation and saving results
     errs = params.plot_ff_results("performance_opt_pso_1.png", ref_dics, [params_opt])
